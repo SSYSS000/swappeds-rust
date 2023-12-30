@@ -1,9 +1,12 @@
+extern crate getopts;
+
 use std::{
     io::{self, BufRead, BufReader},
     ffi::OsStr,
     fs::{File, ReadDir, DirEntry},
     path::Path,
-    iter::Filter
+    iter::Filter,
+    env
 };
 
 fn is_all_digits(s: &str) -> bool {
@@ -97,6 +100,21 @@ impl Iterator for ProcessStatusReader {
 }
 
 fn main() {
+    static OPT_TOTAL: &str = "c";
+    static OPT_HELP: &str  = "h";
+
+    let mut total: usize = 0;
+
+    let mut opts = getopts::Options::new();
+    opts.optflag(OPT_TOTAL, "", "produce total swap usage");
+    opts.optflag(OPT_HELP, "help", "print this help text");
+
+    let matches = opts.parse(env::args()).unwrap();
+
+    if matches.opt_present(OPT_HELP) {
+        println!("usage: {} [options]\n{}", "pswap", opts.usage(""));
+    }
+
     println!("     PID          SWAP     NAME");
 
     for status in create_process_status_reader().unwrap() {
@@ -104,12 +122,19 @@ fn main() {
             Err(e) => eprintln!("{:?}", e),
 
             Ok(status) => {
+                let swap_kb = status.vm_swap.unwrap_or(0);
+                total += swap_kb;
+
                 println!("{: >8}     {: >6} kB     {}",
                     status.pid,
-                    status.vm_swap.unwrap_or(0),
+                    swap_kb,
                     status.process_name
                 );
             }
         }
+    }
+
+    if matches.opt_present(OPT_TOTAL) {
+        println!("Total     {} kB", total);
     }
 }
