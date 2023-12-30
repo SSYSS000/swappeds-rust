@@ -1,10 +1,31 @@
-use std::{io::{Read, BufRead, BufReader}, ffi::OsStr};
-use std::fs::{File, ReadDir, DirEntry};
-use std::path::{Path, PathBuf};
-use std::iter::Filter;
+use std::{
+    io::{self, BufRead, BufReader},
+    ffi::OsStr,
+    fs::{File, ReadDir, DirEntry},
+    path::Path,
+    iter::Filter
+};
 
 fn is_all_digits(s: &str) -> bool {
     s.chars().all(|x| x.is_digit(10))
+}
+
+#[derive(Debug)]
+enum ReadError {
+    IoError(io::Error),
+    InvalidValue
+}
+
+impl From<io::Error> for ReadError {
+    fn from(e: io::Error) -> Self {
+        ReadError::IoError(e)
+    }
+}
+
+impl From<std::num::ParseIntError> for ReadError {
+    fn from(_: std::num::ParseIntError) -> Self {
+        ReadError::InvalidValue
+    }
 }
 
 #[derive(Default)]
@@ -15,43 +36,22 @@ struct ProcessStatus {
 }
 
 struct ProcessStatusReader {
-    iter: Filter<ReadDir, fn(Result<DirEntry, std::io::Error>) -> bool> 
+    iter: Filter<ReadDir, fn(&io::Result<DirEntry>) -> bool> 
 }
 
+fn create_process_status_reader() -> io::Result<ProcessStatusReader> {
+    fn is_process_subdir(entry: &io::Result<DirEntry>) -> bool {
+        let path = entry.as_ref().unwrap().path();
 
-#[cfg(target_os = "linux")]
-fn create_process_status_reader() -> std::io::Result<ProcessStatusReader> {
+        path.is_dir() && match path.file_name().and_then(OsStr::to_str) {
+            Some(dir_name) => is_all_digits(dir_name),
+            None => false
+        }
+    }
+
     Ok(ProcessStatusReader {
-        iter: std::fs::read_dir("/proc")?.filter(|entry| {
-            let path = entry.unwrap().path();
-
-            path.is_dir() && match path.file_name().and_then(OsStr::to_str) {
-                Some(dir_name) => is_all_digits(dir_name),
-                None => false
-            }
-        })
+        iter: std::fs::read_dir("/proc")?.filter(is_process_subdir)
     })
-}
-
-impl ProcessStatusReader {
-}
-
-#[derive(Debug)]
-enum ReadError {
-    IoError(std::io::Error),
-    ParseError(std::num::ParseIntError)
-}
-
-impl From<std::io::Error> for ReadError {
-    fn from(e: std::io::Error) -> Self {
-        ReadError::IoError(e)
-    }
-}
-
-impl From<std::num::ParseIntError> for ReadError {
-    fn from(e: std::num::ParseIntError) -> Self {
-        ReadError::ParseError(e)
-    }
 }
 
 fn read_process_status<P: AsRef<Path>>(path: P) -> Result<ProcessStatus, ReadError> {
@@ -70,7 +70,11 @@ fn read_process_status<P: AsRef<Path>>(path: P) -> Result<ProcessStatus, ReadErr
             "Pid"       => status.pid = value.parse()?,
             "Name"      => status.process_name.push_str(value),
             "VmSwap"    => {
-                status.vm_swap = Some(value.strip_suffix(" kB").unwrap().parse()?)
+                status.vm_swap = Some(
+                    value.strip_suffix(" kB")
+                    .ok_or(ReadError::InvalidValue)?
+                    .parse()?
+                )
             },
             _ => ()
         }
@@ -86,7 +90,7 @@ impl Iterator for ProcessStatusReader {
 
     fn next(&mut self) -> Option<Self::Item> {
         Some(match self.iter.next()? {
-            Ok(p) => read_process_status(p.join("status")),
+            Ok(v)  => read_process_status(v.path().join("status")),
             Err(e) => Err(e.into())
         })
     }
