@@ -112,7 +112,10 @@ fn main() {
     let matches = opts.parse(env::args()).unwrap();
 
     if matches.opt_present(OPT_HELP) {
-        println!("usage: {} [options]\n{}", "pswap", opts.usage(""));
+        println!("usage: {} [options]\n{}",
+            env::args().nth(0).unwrap(),
+            opts.usage("")
+        );
         return;
     }
 
