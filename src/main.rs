@@ -113,6 +113,7 @@ fn main() {
 
     if matches.opt_present(OPT_HELP) {
         println!("usage: {} [options]\n{}", "pswap", opts.usage(""));
+        return;
     }
 
     println!("     PID          SWAP     NAME");
